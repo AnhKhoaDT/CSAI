@@ -3,9 +3,12 @@ import os
 from colorama import Fore
 from colorama import Style
 from copy import deepcopy
+import time
+import psutil
 #sử lý dữ liệu quản lý file, hiển thị màu sắc sao chép dữ liệu
 import pygame#hiển thị and quản lý
 from pygame.constants import KEYDOWN
+from time import time
 import bfs
 import astar
 import dfs
@@ -16,6 +19,8 @@ TIME_OUT = 1800# thòi gian giới hạn
 ''' GET THE TESTCASES AND CHECKPOINTS PATH FOLDERS '''
 path_board = os.getcwd() + '\\..\\Testcases'
 path_checkpoint = os.getcwd() + '\\..\\Checkpoints'
+output_path = os.path.join(os.getcwd(), 'Outputs')
+os.makedirs(output_path, exist_ok=True)
 
 ''' TRAVERSE TESTCASE FILES AND RETURN A SET OF BOARD '''
 def get_boards_list():
@@ -29,8 +34,9 @@ def get_boards_list():
                 lines = f.readlines()
 
             # Đọc hàng đầu tiên là trọng lượng của cục đá
-            rock_weights = list(map(int, lines[0].strip().split(',')))
-            weights.append(rock_weights)
+            rock_weights = list(map(int, lines[0].strip().split(',')))  # Đọc trọng lượng từ dòng đầu tiên và chuyển thành danh sách các số nguyên
+            weights.append(rock_weights)  # Thêm danh sách trọng lượng vào list `weights`
+
 
             # Các hàng tiếp theo là bản đồ
             board_data = [line.strip().split(',') for line in lines[1:]]
@@ -40,7 +46,7 @@ def get_boards_list():
             for row in board:
                 format_row(row)
             
-            boards.append(board)
+            boards.append(board)  # Thêm bản đồ `board` vào list `boards`
     
     return boards, weights
 
@@ -131,36 +137,56 @@ found_background = pygame.image.load(os.getcwd() + '\\found_background.png')
 RENDER THE MAP FOR GAMEPLAY
 '''
 def renderMap(board, rock_weights):
-    rock_positions = [(i, j) for i, row in enumerate(board) for j, cell in enumerate(row) if cell == '$']
+    """Hiển thị bản đồ kèm trọng lượng của từng cục đá ngay lập tức."""
 
-    if len(rock_positions) != len(rock_weights):
-        print("Lỗi: Số lượng trọng lượng không khớp với số lượng cục đá trên bảng.")
-        return
-
+    # Kích thước và căn lề của màn hình
     width = len(board[0])
     height = len(board)
     indent = (640 - width * 32) / 2.0
 
-    # Tạo từ điển gán vị trí cục đá với trọng lượng
-    rock_weight_dict = {pos: weight for pos, weight in zip(rock_positions, rock_weights)}
+    # Tìm vị trí các cục đá và kiểm tra nếu có sự không khớp với trọng lượng
+    rock_positions = [(i, j) for i, row in enumerate(board) for j, cell in enumerate(row) if cell == '$']
+    if len(rock_positions) != len(rock_weights):
+        print("Lỗi: Số lượng trọng lượng không khớp với số lượng cục đá trên bảng.")
+        return
 
+    # Duyệt qua tất cả các ô trên bảng
     for i in range(height):
         for j in range(width):
+            # Vẽ nền cho mỗi ô trước
             screen.blit(space, (j * 32 + indent, i * 32 + 250))
+
+            # Kiểm tra loại ô và vẽ đối tượng tương ứng
             if board[i][j] == '#':
+                # Vẽ tường
                 screen.blit(wall, (j * 32 + indent, i * 32 + 250))
             elif board[i][j] == '$':
+                # Vẽ cục đá
                 screen.blit(box, (j * 32 + indent, i * 32 + 250))
-                # Hiển thị trọng lượng lên cục đá
-                weight = rock_weight_dict.get((i, j))
-                if weight is not None:
-                    weight_text = pygame.font.Font(None, 24).render(str(weight), True, (0, 0, 0))
-                    screen.blit(weight_text, (j * 32 + indent + 8, i * 32 + 250 + 8))
+                
+                # Tìm trọng lượng tương ứng và hiển thị lên cục đá
+                rock_index = rock_positions.index((i, j))  # Tìm vị trí của cục đá trong danh sách
+                weight = rock_weights[rock_index]  # Lấy trọng lượng từ danh sách trọng lượng
+                weight_text = pygame.font.Font(None, 24).render(str(weight), True, (0, 0, 0))
+                screen.blit(weight_text, (j * 32 + indent + 8, i * 32 + 250 + 8))
+                  # Hiển thị trọng lượng lên cục đá
+
             elif board[i][j] == '%':
+                # Vẽ điểm đích
                 screen.blit(point, (j * 32 + indent, i * 32 + 250))
             elif board[i][j] == '@':
+                # Vẽ người chơi
                 screen.blit(player, (j * 32 + indent, i * 32 + 250))
 
+
+def write_output(test_case_num, algorithm, steps, weight, nodes, elapsed_time, memory, solution):
+    filename = f"output-{test_case_num + 1:02d}.txt"  # Naming format: output-01.txt, output-02.txt, etc.
+    file_path = os.path.join(output_path, filename)
+
+    with open(file_path, 'w') as f:
+        f.write(f"{algorithm}\n")
+        f.write(f"Steps: {steps}, Weight: {weight}, Nodes: {nodes}, Time (ms): {elapsed_time:.2f}, Memory (MB): {memory:.2f}\n")
+        f.write(solution)
 
 button_width = 80
 button_height = 40
@@ -209,29 +235,55 @@ def sokoban():
     stateLenght = 0
     currentState = 0
     found = True
-   
+    message = ""  # Biến để lưu trữ thông báo chọn thuật toán
+    
     while running:
         screen.blit(init_background, (0, 0))
         draw_buttons()
+
+        # Hiển thị thông báo thuật toán được chọn trên giao diện Pygame nếu có
+        if message:
+            font = pygame.font.Font(None, 30)
+            message_text = font.render(message, True, (255, 255, 255))  # Màu trắng
+            screen.blit(message_text, (200, 50))  # Vị trí hiển thị thông báo
+
         if sceneState == "init":
             initGame(maps[mapNumber])
 
         if sceneState == "executing":
             list_check_point = check_points[mapNumber]
             rock_weights = rock_weights_list[mapNumber]
+            process = psutil.Process(os.getpid())
+            start_time = time.time()
+            initial_memory = process.memory_info().rss / (1024 * 1024)  # Memory in MB
+
+
             if algorithm == "BFS":
-                print("BFS")
-                list_board = bfs.BFS_search(maps[mapNumber], list_check_point)
-            elif algorithm=="A*":
-                print("AStar")
+                message = "Algorithm selected: BFS"  # Hiển thị thông báo chọn thuật toán
+                list_board, stats = bfs.BFS_search(maps[mapNumber], list_check_point)
+            elif algorithm == "A*":
+                message = "Algorithm selected: A*"
                 list_board = astar.AStart_Search(maps[mapNumber], list_check_point)
-            elif algorithm=="DFS":
-                print("DFS")
-                #list_board = dfs.DFS_Search(maps[mapNumber], list_check_point)
-            else:
-                print("UCS")
-                #list_board = ucs.UCS_Search(maps[mapNumber], list_check_point)
+            elif algorithm == "DFS":
+                message = "Algorithm selected: DFS"
+                # list_board = dfs.DFS_Search(maps[mapNumber], list_check_point)
+            elif algorithm == "UCS":
+                message = "Algorithm selected: UCS"
+                # list_board = ucs.UCS_Search(maps[mapNumber], list_check_point)
                 
+            elapsed_time = (time.time() - start_time) * 1000  # Time in milliseconds
+            final_memory = process.memory_info().rss / (1024 * 1024)
+            memory_used = final_memory - initial_memory
+
+             # Extract statistics for output
+            steps = stats["steps"]
+            weight = stats["weight"]
+            nodes = stats["nodes"]
+            solution_path = stats["solution_path"]
+
+              # Write the output file for the current map (test case)
+            write_output(mapNumber, algorithm, steps, weight, nodes, elapsed_time, memory_used, solution_path)
+
             if len(list_board) > 0:
                 sceneState = "playing"
                 stateLenght = len(list_board[0])
@@ -253,7 +305,7 @@ def sokoban():
         if sceneState == "playing":
             clock.tick(2)
             current_board = list_board[0][currentState]
-            renderMap(current_board, rock_weights)  # Truyền `rock_weights` vào renderMap
+            renderMap(current_board, rock_weights)
             currentState += 1
             if currentState == stateLenght:
                 sceneState = "end"
@@ -262,21 +314,6 @@ def sokoban():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            # if event.type == pygame.KEYDOWN:
-            #     if event.key == pygame.K_RIGHT and sceneState == "init":
-            #         if mapNumber < len(maps) - 1:
-            #             mapNumber += 1
-            #     if event.key == pygame.K_LEFT and sceneState == "init":
-            #         if mapNumber > 0:
-            #             mapNumber -= 1
-            #     if event.key == pygame.K_RETURN:
-            #         if sceneState == "init":
-            #             sceneState = "loading"
-            #         if sceneState == "end":
-            #             sceneState = "init"
-            #     if event.key == pygame.K_SPACE and sceneState == "init":
-            #         algorithm = "A Star Search" if algorithm == "Breadth First Search" else "Breadth First Search"
-            #         selected_algorithm = algorithm  # Update the selected algorithm
 
             if event.type == pygame.MOUSEBUTTONDOWN:  # Check for mouse button clicks
                 if event.button == 1:  # Left mouse button
@@ -284,7 +321,7 @@ def sokoban():
                     # Check if a button was clicked
                     for text, (x, y) in button_positions.items():
                         if x <= mouse_pos[0] <= x + button_width and y <= mouse_pos[1] <= y + button_height:
-                            selected_algorithm = text  # Update the selected algorithm
+                            selected_algorithm = text
                             algorithm = text  # Set the algorithm according to the button clicked
                             break  # Exit the loop after the first button click
 
@@ -296,13 +333,16 @@ def sokoban():
                     if mapNumber > 0:
                         mapNumber -= 1
                 if event.key == pygame.K_RETURN:
-                    if sceneState == "init":
-                        sceneState = "loading"
-                    if sceneState == "end":
+                    if algorithm == "Select algorithm":
+                        print("Please select an algorithm first!")  # Hiển thị thông báo trên console
+                    elif sceneState == "init":
+                        sceneState = "loading"  # Chỉ thay đổi `sceneState` khi đã chọn thuật toán
+                    elif sceneState == "end":
                         sceneState = "init"
 
         pygame.display.flip()
     pygame.quit()
+
     
 ''' DISPLAY MAIN SCENE '''
 #DISPLAY INITIAL SCENE
