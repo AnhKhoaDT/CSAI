@@ -136,7 +136,7 @@ RENDER THE MAP FOR GAMEPLAY
 def render_stone(position, weight):
     """Hiển thị cục đá và trọng lượng của nó tại vị trí cụ thể."""
     x, y = position
-    indent = (640 - len(maps[mapNumber][0]) * 32) / 2.0
+    indent = (700 - len(maps[mapNumber][0]) * 32) / 2.0
 
     # Vẽ lại nền trước
     screen.blit(space, (y * 32 + indent, x * 32 + 250))
@@ -153,7 +153,7 @@ def renderMap(board, rock_weights):
     # Kích thước và căn lề của màn hình
     width = len(board[0])
     height = len(board)
-    indent = (640 - width * 32) / 2.0
+    indent = (700 - width * 32) / 2.0
 
     # Tìm vị trí các cục đá và kiểm tra nếu có sự không khớp với trọng lượng
     rock_positions = [(i, j) for i in range(height) for j in range(width) if board[i][j] == '$']
@@ -164,10 +164,13 @@ def renderMap(board, rock_weights):
     # Duyệt qua tất cả các ô trên bảng
     for i in range(height):
         for j in range(width):
-            # Vẽ nền cho mỗi ô trước
-            screen.blit(space, (j * 32 + indent, i * 32 + 250))
-
             cell = board[i][j]
+
+            # Vẽ nền cho mỗi ô trước, nhưng chỉ bên trong khu vực không phải tường
+            if cell != '#':  # Nếu không phải tường
+                screen.blit(space, (j * 32 + indent, i * 32 + 250))
+
+            # Vẽ các thành phần khác (tường, đá, điểm đích, người chơi)
             if cell == '#':
                 # Vẽ tường
                 screen.blit(wall, (j * 32 + indent, i * 32 + 250))
@@ -182,9 +185,7 @@ def renderMap(board, rock_weights):
             elif cell == '@':
                 # Vẽ người chơi
                 screen.blit(player, (j * 32 + indent, i * 32 + 250))
-            else:
-                # Vẽ không gian trống
-                screen.blit(space, (j * 32 + indent, i * 32 + 250))
+
 
 
 def write_output(test_case_num, algorithm, steps, weight, nodes, elapsed_time, memory, solution):
@@ -215,7 +216,34 @@ def draw_buttons():
         label = font.render(text, True, (0, 0, 0))
         screen.blit(label, (x + 10, y + 10))  # Center the text
      # Display the selected algorithm text
-    
+
+# Button positions for control buttons
+control_button_positions = {
+    'Start': (20, 250),
+    'Pause': (20, 300),
+    'Reset': (20, 350)
+}
+
+# Initialize variables for cost and steps
+cost = 0
+step = 0  
+
+# Function to draw control buttons and cost/step indicators
+def draw_control_buttons():
+    # Draw Start, Pause, Reset buttons
+    for text, (x, y) in control_button_positions.items():
+        color = (0, 255, 0) if text == 'Start' else (255, 255, 0) if text == 'Pause' else (255, 0, 0)
+        pygame.draw.rect(screen, color, (x, y, button_width, button_height))  # Draw button
+        font = pygame.font.Font(None, 36)
+        label = font.render(text, True, (0, 0, 0))
+        screen.blit(label, (x + 10, y + 10))  # Center the text
+
+    # Draw Step and Cost indicators
+    font = pygame.font.Font(None, 36)
+    step_label = font.render(f"Step: {step}", True, WHITE)
+    cost_label = font.render(f"Cost: {cost}", True, WHITE)
+    screen.blit(step_label, (500, 20))
+    screen.blit(cost_label, (500, 60))
 
 '''
 VARIABLES INITIALIZATIONS
@@ -237,14 +265,18 @@ dboard = None
 rock_weights = []
 
 
+import time  # Thêm import time để quản lý thời gian hiển thị thông báo
+
 def sokoban():
-    global sceneState, loading, algorithm, list_board, mapNumber, board, rock_weights
-    
+    global sceneState, loading, algorithm, list_board, mapNumber, board, rock_weights, cost, step
+
     running = True
-    stateLenght = 0
+    stateLength = 0
     currentState = 0
     found = True
+    paused = False  # trạng thái tạm dừng
     message = ""  # Biến để lưu trữ thông báo chọn thuật toán
+    message_time = 0  # Thời điểm bắt đầu hiển thị thông báo
     
     previous_positions = {}
     rock_positions = [(i, j) for i, row in enumerate(maps[mapNumber]) for j, cell in enumerate(row) if cell == '$']
@@ -254,60 +286,54 @@ def sokoban():
     while running:
         screen.blit(init_background, (0, 0))
         draw_buttons()
+        draw_control_buttons()  # Hiển thị các nút điều khiển
 
-        # Hiển thị thông báo thuật toán được chọn trên giao diện Pygame nếu có
-        if message:
+        # Hiển thị thông báo màu đỏ sát phía trên cùng và tự động biến mất sau 3 giây
+        if message and (time.time() - message_time < 3):  # Chỉ hiển thị trong 3 giây
             font = pygame.font.Font(None, 30)
-            message_text = font.render(message, True, (255, 255, 255))  # Màu trắng
-            screen.blit(message_text, (200, 50))  # Vị trí hiển thị thông báo
+            message_text = font.render(message, True, (255, 0, 0))  # Màu đỏ
+            screen.blit(message_text, (200, 10))  # Đặt vị trí hiển thị thông báo sát trên cùng
+        elif time.time() - message_time >= 3:  # Sau 3 giây, xóa thông báo
+            message = ""
 
         if sceneState == "init":
             initGame(maps[mapNumber])
 
-        if sceneState == "executing":
+        if sceneState == "executing" and not paused:  # Chỉ thực thi nếu không bị tạm dừng
             list_check_point = check_points[mapNumber]
             rock_weights = rock_weights_list[mapNumber]
             process = psutil.Process(os.getpid())
-            start_time = time_lib.time() 
+            start_time = time_lib.time()
             initial_memory = process.memory_info().rss / (1024 * 1024)  # Memory in MB
 
-
+            # Chọn thuật toán dựa trên lựa chọn
             if algorithm == "BFS":
-                message = "Algorithm selected: BFS"  # Hiển thị thông báo chọn thuật toán
+                message = "Algorithm selected: BFS"
                 list_board, stats = bfs.BFS_search(maps[mapNumber], list_check_point)
             elif algorithm == "A*":
                 message = "Algorithm selected: A*"
                 list_board = astar.AStart_Search(maps[mapNumber], list_check_point)
             elif algorithm == "DFS":
                 message = "Algorithm selected: DFS"
-                # list_board = dfs.DFS_Search(maps[mapNumber], list_check_point)
             elif algorithm == "UCS":
                 message = "Algorithm selected: UCS"
-                # list_board = ucs.UCS_Search(maps[mapNumber], list_check_point)
             else:
                 message = "Please select a valid algorithm"
                 stats = None
-                
-           
 
-             # Extract statistics for output
             if stats is not None:
                 steps = stats["steps"]
                 weight = stats["weight"]
                 nodes = stats["nodes"]
                 solution_path = stats["solution_path"]
-                elapsed_time = (time_lib.time() - start_time) * 1000 # Time in milliseconds
+                elapsed_time = (time_lib.time() - start_time) * 1000
                 final_memory = process.memory_info().rss / (1024 * 1024)
                 memory_used = final_memory - initial_memory
-
-              # Write the output file for the current map (test case)
                 write_output(mapNumber, algorithm, steps, weight, nodes, elapsed_time, memory_used, solution_path)
-            else:
-                print("No valid stats were returned by the algorithm.")
 
             if len(list_board) > 0:
                 sceneState = "playing"
-                stateLenght = len(list_board[0])
+                stateLength = len(list_board[0])
                 currentState = 0
             else:
                 sceneState = "end"
@@ -319,11 +345,11 @@ def sokoban():
         
         if sceneState == "end":
             if found:
-                foundGame(list_board[0][stateLenght - 1])
+                foundGame(list_board[0][stateLength - 1])
             else:
                 notfoundGame()
         
-        if sceneState == "playing":
+        if sceneState == "playing" and not paused:
             clock.tick(2)
             current_board = list_board[0][currentState]
             # Cập nhật vị trí cục đá chỉ khi có sự thay đổi
@@ -333,7 +359,10 @@ def sokoban():
                     previous_positions[pos] = weight
 
             currentState += 1
-            if currentState == stateLenght:
+            step += 1  # Increment step count
+            cost += 1  # Example: increment cost (this could be customized)
+
+            if currentState == stateLength:
                 sceneState = "end"
                 found = True
 
@@ -341,30 +370,44 @@ def sokoban():
             if event.type == pygame.QUIT:
                 running = False
 
-            if event.type == pygame.MOUSEBUTTONDOWN:  # Check for mouse button clicks
-                if event.button == 1:  # Left mouse button
+            if event.type == pygame.MOUSEBUTTONDOWN:  # Kiểm tra khi nhấn chuột
+                if event.button == 1:  # Chuột trái
                     mouse_pos = event.pos
-                    # Check if a button was clicked
+                    # Kiểm tra nếu nhấn vào nút thuật toán
                     for text, (x, y) in button_positions.items():
                         if x <= mouse_pos[0] <= x + button_width and y <= mouse_pos[1] <= y + button_height:
-                            selected_algorithm = text
-                            algorithm = text  # Set the algorithm according to the button clicked
-                            break  # Exit the loop after the first button click
+                            algorithm = text
+                            message = ""  # Xóa thông báo khi chọn thuật toán mới
+                            break
+                    # Kiểm tra nếu nhấn vào nút điều khiển
+                    for control_text, (cx, cy) in control_button_positions.items():
+                        if cx <= mouse_pos[0] <= cx + button_width and cy <= mouse_pos[1] <= cy + button_height:
+                            if control_text == "Start":
+                                if algorithm == "Select algorithm":
+                                    message = "Vui lòng chọn thuật toán!"  # Thông báo yêu cầu chọn thuật toán
+                                    message_time = time.time()  # Lưu thời điểm bắt đầu hiển thị thông báo
+                                else:
+                                    if sceneState == "init":
+                                        sceneState = "loading"
+                                    paused = False
+                            elif control_text == "Pause":
+                                paused = not paused
+                            elif control_text == "Reset":
+                                sceneState = "init"
+                                cost = 0
+                                step = 0
+                                algorithm = "Select algorithm"
+                                message = ""  # Xóa thông báo khi reset
+                                break
 
+            # Sử dụng các nút qua lại cho màn
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RIGHT and sceneState == "init":
-                    if mapNumber < len(maps) - 1:
+                    if mapNumber < len(maps) - 1:  # Không vượt quá giới hạn màn cuối
                         mapNumber += 1
                 if event.key == pygame.K_LEFT and sceneState == "init":
-                    if mapNumber > 0:
+                    if mapNumber > 0:  # Không đi qua màn đầu tiên
                         mapNumber -= 1
-                if event.key == pygame.K_RETURN:
-                    if algorithm == "Select algorithm":
-                        print("Please select an algorithm first!")  # Hiển thị thông báo trên console
-                    elif sceneState == "init":
-                        sceneState = "loading"  # Chỉ thay đổi `sceneState` khi đã chọn thuật toán
-                    elif sceneState == "end":
-                        sceneState = "init"
 
         pygame.display.flip()
     pygame.quit()
@@ -373,12 +416,12 @@ def sokoban():
 ''' DISPLAY MAIN SCENE '''
 #DISPLAY INITIAL SCENE
 def initGame(map):
-	titleSize = pygame.font.Font('gameFont.ttf', 40)
+	titleSize = pygame.font.Font('gameFont.ttf', 30)
 	titleText = titleSize.render(' Ares’s adventure', True, WHITE)
 	titleRect = titleText.get_rect(center=(320, 80))
 	screen.blit(titleText, titleRect)
 
-	desSize = pygame.font.Font('gameFont.ttf', 20)
+	desSize = pygame.font.Font('gameFont.ttf', 25)
 	desText = desSize.render('Now, select your map!!!', True, WHITE)
 	desRect = desText.get_rect(center=(320, 140))
 	screen.blit(desText, desRect)
