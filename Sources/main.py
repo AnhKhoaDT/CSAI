@@ -8,7 +8,7 @@ import psutil
 #sử lý dữ liệu quản lý file, hiển thị màu sắc sao chép dữ liệu
 import pygame#hiển thị and quản lý
 from pygame.constants import KEYDOWN
-from time import time
+import time as time_lib
 import bfs
 import astar
 import dfs
@@ -23,55 +23,39 @@ output_path = os.path.join(os.getcwd(), 'Outputs')
 os.makedirs(output_path, exist_ok=True)
 
 ''' TRAVERSE TESTCASE FILES AND RETURN A SET OF BOARD '''
+# Chuyển cách đọc file bản đồ sang sử dụng hàm `get_board(path)` và `get_boards(mode_path)`
 def get_boards_list():
     boards = []
     weights = []
-    
+
+    # Duyệt qua các file trong thư mục `Testcases`
     for filename in os.listdir(path_board):
         if filename.endswith(".txt"):
             path = os.path.join(path_board, filename)
+            # Sử dụng hàm get_board để lấy bản đồ và trọng lượng của các viên đá
+            board = get_board(path)
+            
+            # Đọc lại file để lấy trọng lượng từ dòng đầu tiên
             with open(path, 'r') as f:
-                lines = f.readlines()
+                rock_weights = list(map(int, f.readline().strip().split()))
+                weights.append(rock_weights)
 
-            # Đọc hàng đầu tiên là trọng lượng của cục đá
-            rock_weights = list(map(int, lines[0].strip().split(',')))  # Đọc trọng lượng từ dòng đầu tiên và chuyển thành danh sách các số nguyên
-            weights.append(rock_weights)  # Thêm danh sách trọng lượng vào list `weights`
+            boards.append(np.array(board, dtype=str))  # Chuyển board thành NumPy array cho dễ quản lý
 
-
-            # Các hàng tiếp theo là bản đồ
-            board_data = [line.strip().split(',') for line in lines[1:]]
-            board = np.array(board_data, dtype=str)
-            
-            # Định dạng các ký tự trong bản đồ
-            for row in board:
-                format_row(row)
-            
-            boards.append(board)  # Thêm bản đồ `board` vào list `boards`
-    
     return boards, weights
 
 ''' Đọc tất cả các file checkpoint và trả về danh sách checkpoint tương ứng '''
 def get_check_points():
-    os.chdir(path_checkpoint)
-    list_check_point = []
-    for file in os.listdir():
-        if file.endswith(".txt"):
-            file_path = f"{path_checkpoint}\{file}"
-            check_point = get_pair(file_path)
-            list_check_point.append(check_point)
-    return list_check_point
+    check_points = []
+    for filename in os.listdir(path_checkpoint):
+        if filename.endswith(".txt"):
+            path = os.path.join(path_checkpoint, filename)
+            with open(path, 'r') as f:
+                points = [tuple(map(int, line.strip().split(','))) for line in f if line.strip()]
+                check_points.append(points)
+    return check_points
 
-''' FORMAT THE INPUT TESTCASE TXT FILE '''
-def format_row(row):
-    for i in range(len(row)):
-        if row[i] == '1':
-            row[i] = '#'
-        elif row[i] == 'p':
-            row[i] = '@'
-        elif row[i] == 'b':
-            row[i] = '$'
-        elif row[i] == 'c':
-            row[i] = '%'
+
 
 ''' FORMAT THE INPUT CHECKPOINT TXT FILE '''
 def format_check_points(check_points):# chưyen đổi checkpoint thành danh sách các tọa độ
@@ -80,12 +64,25 @@ def format_check_points(check_points):# chưyen đổi checkpoint thành danh s�
         result.append((check_point[0], check_point[1]))
     return result
 
-''' READ A SINGLE TESTCASE TXT FILE '''#Đọc và xử lý các file .txt để tạo ra các bảng và checkpoint
 def get_board(path):
-    result = np.loadtxt(f"{path}", dtype=str, delimiter=',')
-    for row in result:
-        format_row(row)
+    # Đọc file và chuyển mỗi dòng thành danh sách ký tự mà không qua định dạng
+    with open(path, 'r') as f:
+        lines = f.readlines()
+    
+    # Chuyển từng dòng thành danh sách ký tự, loại bỏ dòng trống
+    board_data = [list(line.strip()) for line in lines if line.strip()]
+    
+    # Kiểm tra và làm cho các dòng có độ dài bằng nhau
+    max_length = max(len(line) for line in board_data)
+    for line in board_data:
+        # Thêm các ký tự khoảng trắng vào các dòng ngắn hơn để đạt độ dài bằng max_length
+        line.extend([' '] * (max_length - len(line)))
+
+    # Chuyển đổi thành mảng NumPy sau khi đảm bảo các dòng có độ dài bằng nhau
+    result = np.array(board_data, dtype=str)
+    
     return result
+
 
 ''' READ A SINGLE CHECKPOINT TXT FILE '''
 def get_pair(path):
@@ -136,6 +133,20 @@ found_background = pygame.image.load(os.getcwd() + '\\found_background.png')
 '''
 RENDER THE MAP FOR GAMEPLAY
 '''
+def render_stone(position, weight):
+    """Hiển thị cục đá và trọng lượng của nó tại vị trí cụ thể."""
+    x, y = position
+    indent = (640 - len(maps[mapNumber][0]) * 32) / 2.0
+
+    # Vẽ lại nền trước
+    screen.blit(space, (y * 32 + indent, x * 32 + 250))
+    # Vẽ lại cục đá
+    screen.blit(box, (y * 32 + indent, x * 32 + 250))
+    # Hiển thị trọng lượng của cục đá
+    weight_text = pygame.font.Font(None, 24).render(str(weight), True, (0, 0, 0))
+    screen.blit(weight_text, (y * 32 + indent + 8, x * 32 + 250 + 8))
+    
+
 def renderMap(board, rock_weights):
     """Hiển thị bản đồ kèm trọng lượng của từng cục đá ngay lập tức."""
 
@@ -145,7 +156,7 @@ def renderMap(board, rock_weights):
     indent = (640 - width * 32) / 2.0
 
     # Tìm vị trí các cục đá và kiểm tra nếu có sự không khớp với trọng lượng
-    rock_positions = [(i, j) for i, row in enumerate(board) for j, cell in enumerate(row) if cell == '$']
+    rock_positions = [(i, j) for i in range(height) for j in range(width) if board[i][j] == '$']
     if len(rock_positions) != len(rock_weights):
         print("Lỗi: Số lượng trọng lượng không khớp với số lượng cục đá trên bảng.")
         return
@@ -156,27 +167,24 @@ def renderMap(board, rock_weights):
             # Vẽ nền cho mỗi ô trước
             screen.blit(space, (j * 32 + indent, i * 32 + 250))
 
-            # Kiểm tra loại ô và vẽ đối tượng tương ứng
-            if board[i][j] == '#':
+            cell = board[i][j]
+            if cell == '#':
                 # Vẽ tường
                 screen.blit(wall, (j * 32 + indent, i * 32 + 250))
-            elif board[i][j] == '$':
-                # Vẽ cục đá
-                screen.blit(box, (j * 32 + indent, i * 32 + 250))
-                
-                # Tìm trọng lượng tương ứng và hiển thị lên cục đá
-                rock_index = rock_positions.index((i, j))  # Tìm vị trí của cục đá trong danh sách
-                weight = rock_weights[rock_index]  # Lấy trọng lượng từ danh sách trọng lượng
-                weight_text = pygame.font.Font(None, 24).render(str(weight), True, (0, 0, 0))
-                screen.blit(weight_text, (j * 32 + indent + 8, i * 32 + 250 + 8))
-                  # Hiển thị trọng lượng lên cục đá
-
-            elif board[i][j] == '%':
+            elif cell == '$':
+                # Lấy trọng lượng tương ứng của cục đá
+                rock_index = rock_positions.index((i, j))
+                weight = rock_weights[rock_index]
+                render_stone((i, j), weight)
+            elif cell == '.':
                 # Vẽ điểm đích
                 screen.blit(point, (j * 32 + indent, i * 32 + 250))
-            elif board[i][j] == '@':
+            elif cell == '@':
                 # Vẽ người chơi
                 screen.blit(player, (j * 32 + indent, i * 32 + 250))
+            else:
+                # Vẽ không gian trống
+                screen.blit(space, (j * 32 + indent, i * 32 + 250))
 
 
 def write_output(test_case_num, algorithm, steps, weight, nodes, elapsed_time, memory, solution):
@@ -228,6 +236,7 @@ loading = False
 dboard = None
 rock_weights = []
 
+
 def sokoban():
     global sceneState, loading, algorithm, list_board, mapNumber, board, rock_weights
     
@@ -237,6 +246,11 @@ def sokoban():
     found = True
     message = ""  # Biến để lưu trữ thông báo chọn thuật toán
     
+    previous_positions = {}
+    rock_positions = [(i, j) for i, row in enumerate(maps[mapNumber]) for j, cell in enumerate(row) if cell == '$']
+    for pos, weight in zip(rock_positions, rock_weights_list[mapNumber]):
+        previous_positions[pos] = weight
+
     while running:
         screen.blit(init_background, (0, 0))
         draw_buttons()
@@ -254,7 +268,7 @@ def sokoban():
             list_check_point = check_points[mapNumber]
             rock_weights = rock_weights_list[mapNumber]
             process = psutil.Process(os.getpid())
-            start_time = time.time()
+            start_time = time_lib.time() 
             initial_memory = process.memory_info().rss / (1024 * 1024)  # Memory in MB
 
 
@@ -270,19 +284,26 @@ def sokoban():
             elif algorithm == "UCS":
                 message = "Algorithm selected: UCS"
                 # list_board = ucs.UCS_Search(maps[mapNumber], list_check_point)
+            else:
+                message = "Please select a valid algorithm"
+                stats = None
                 
-            elapsed_time = (time.time() - start_time) * 1000  # Time in milliseconds
-            final_memory = process.memory_info().rss / (1024 * 1024)
-            memory_used = final_memory - initial_memory
+           
 
              # Extract statistics for output
-            steps = stats["steps"]
-            weight = stats["weight"]
-            nodes = stats["nodes"]
-            solution_path = stats["solution_path"]
+            if stats is not None:
+                steps = stats["steps"]
+                weight = stats["weight"]
+                nodes = stats["nodes"]
+                solution_path = stats["solution_path"]
+                elapsed_time = (time_lib.time() - start_time) * 1000 # Time in milliseconds
+                final_memory = process.memory_info().rss / (1024 * 1024)
+                memory_used = final_memory - initial_memory
 
               # Write the output file for the current map (test case)
-            write_output(mapNumber, algorithm, steps, weight, nodes, elapsed_time, memory_used, solution_path)
+                write_output(mapNumber, algorithm, steps, weight, nodes, elapsed_time, memory_used, solution_path)
+            else:
+                print("No valid stats were returned by the algorithm.")
 
             if len(list_board) > 0:
                 sceneState = "playing"
@@ -305,7 +326,12 @@ def sokoban():
         if sceneState == "playing":
             clock.tick(2)
             current_board = list_board[0][currentState]
-            renderMap(current_board, rock_weights)
+            # Cập nhật vị trí cục đá chỉ khi có sự thay đổi
+            for pos, weight in zip(rock_positions, rock_weights):
+                if pos not in previous_positions or previous_positions[pos] != weight:
+                    render_stone(pos, weight)
+                    previous_positions[pos] = weight
+
             currentState += 1
             if currentState == stateLenght:
                 sceneState = "end"
@@ -347,8 +373,8 @@ def sokoban():
 ''' DISPLAY MAIN SCENE '''
 #DISPLAY INITIAL SCENE
 def initGame(map):
-	titleSize = pygame.font.Font('gameFont.ttf', 60)
-	titleText = titleSize.render('Among-koban', True, WHITE)
+	titleSize = pygame.font.Font('gameFont.ttf', 40)
+	titleText = titleSize.render(' Ares’s adventure', True, WHITE)
 	titleRect = titleText.get_rect(center=(320, 80))
 	screen.blit(titleText, titleRect)
 
